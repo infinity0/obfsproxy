@@ -6,6 +6,7 @@ import obfsproxy.transports.b64 as b64
 import obfsproxy.transports.obfs2 as obfs2
 import obfsproxy.transports.obfs3 as obfs3
 import obfsproxy.transports.scramblesuit.scramblesuit as scramblesuit
+import obfsproxy.transports.ezpt as ezpt
 
 transports = [
     ('dummy', {'base': dummy.DummyTransport, 'client' : dummy.DummyClient, 'server' : dummy.DummyServer }),
@@ -14,7 +15,8 @@ transports = [
     ('scramblesuit', {'base':  scramblesuit.ScrambleSuitTransport,
                        'client': scramblesuit.ScrambleSuitClient,
                        'server': scramblesuit.ScrambleSuitServer }),
-    ('obfs3', {'base': obfs3.Obfs3Transport, 'client' : obfs3.Obfs3Client, 'server' : obfs3.Obfs3Server })
+    ('obfs3', {'base': obfs3.Obfs3Transport, 'client' : obfs3.Obfs3Client, 'server' : obfs3.Obfs3Server }),
+    ('ezpt', {'base': ezpt.EzptTransport, 'client' : ezpt.EzptClient, 'server' : ezpt.EzptServer })
     ]
 
 # Make the list an ordered dictionary
