@@ -3,8 +3,9 @@
 
 """ This module contains an implementation of the 'ezpt' transport. """
 
-from obfsproxy.transports.base import BaseTransport
+from obfsproxy.transports.base import BaseTransport, PluggableTransportError
 
+from twisted.internet import error
 from twisted.internet import reactor
 from twisted.internet import protocol
 
@@ -87,21 +88,27 @@ class EzptProcess(protocol.ProcessProtocol):
     def __init__(self, stream):
         self.stream = stream
         self.closing = False
+        # lazily store errors until we actually need to detect them
+        self.error = None
 
     def outReceived(self, data):
         self.stream.write(data)
 
     def inConnectonLost(self):
-        log.error("Child unexpectedly closed its stdin!")
-        # TODO(infinity0): close the circuit with an error
+        msg = "Child unexpectedly closed its stdin!"
+        self.error = error.ConnectionFdescWentAway(msg)
+        log.error(msg)
 
     def outConnectionLost(self):
         if self.closing:
             return # expected
-        log.error("Child unexpectedly closed its stdout!")
-        # TODO(infinity0): close the circuit with an error
+        msg = "Child unexpectedly closed its stdout!"
+        self.error = error.ConnectionFdescWentAway(msg)
+        log.error(msg)
 
     def close(self):
+        if self.closing:
+            return # ignore redundant double-close
         self.transport.loseConnection()
         self.closing = True
         # TODO(infinity0): detect that the child is actually closed after a
@@ -134,15 +141,24 @@ class EzptTransport(BaseTransport):
         """
         Got data from downstream; relay them upstream.
         """
+        if self.reverse.error:
+            raise PluggableTransportError(
+                "ezpt: Error on reverse process", self.reverse.error)
         self.reverse.transport.write(data.read())
 
     def receivedUpstream(self, data):
         """
         Got data from upstream; relay them downstream.
         """
+        if self.forward.error:
+            raise PluggableTransportError(
+                "ezpt: Error on forward process", self.forward.error)
         self.forward.transport.write(data.read())
 
     def circuitDestroyed(self, reason, side):
+        """
+        Circuit was destroyed, close the transform processes.
+        """
         log.debug("Circuit destroyed on %s: %s" % (side, reason))
         self.forward.close()
         self.reverse.close()
