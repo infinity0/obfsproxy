@@ -93,6 +93,8 @@ class EzptProcess(protocol.ProcessProtocol):
         self.closing = False
         # lazily store errors until we actually need to detect them
         self.error = None
+        # exit status, either ProcessDone or ProcessTerminate
+        self.status = None
 
     def outReceived(self, data):
         self.stream.write(data)
@@ -115,11 +117,23 @@ class EzptProcess(protocol.ProcessProtocol):
     def close(self):
         if self.closing:
             return # ignore redundant double-close
-        self.transport.loseConnection()
+        self.transport.closeStdin()
         self.closing = True
-        # TODO(infinity0): detect that the child is actually closed after a
-        # while (processEnded), and kill it if it hasn't. Twisted possibly
-        # already handles this, check that it does.
+
+    def processEnded(self, status):
+        self.status = status.value
+
+    def checkExit(self, kill=False):
+        if self.status is None:
+            if kill:
+                log.info("kill %s since it has evaded death for too long!", self.name)
+                self.transport.signalProcess('KILL')
+            return False
+        if isinstance(self.status, error.ProcessDone):
+            log.debug("%s ended successfully", self.name)
+        else:
+            log.info("%s ended abnormally: %s", self.name, self.status)
+        return True
 
 
 class EzptTransport(BaseTransport):
@@ -171,6 +185,18 @@ class EzptTransport(BaseTransport):
         log.debug("Circuit %s destroyed on %s: %s" % (self.circuit.name, side, reason))
         self.forward.close()
         self.reverse.close()
+        def cleanUp(timeout, multiplier, max_to, kill_to):
+            maybeKill = timeout > kill_to
+            if (self.forward.checkExit(maybeKill) and
+                self.reverse.checkExit(maybeKill)):
+                log.debug("%s: cleaned up EZPT processes", self.name)
+                del self.forward
+                del self.reverse
+                return
+            next_to = timeout * multiplier
+            reactor.callLater(next_to,
+                cleanUp, min(next_to, max_to), multiplier, max_to, kill_to)
+        reactor.callLater(0.25, cleanUp, 0.25, 1.5, 120, 30)
 
 
 class EzptClient(EzptTransport):
