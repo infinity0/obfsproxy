@@ -160,8 +160,11 @@ class EzptTransport(BaseTransport):
     Implements the ezpt protocol. A protocol that simply proxies data
     without obfuscating them.
     """
-    def __init__(self):
-        self.spec = TEST_SPECS["xxd"]
+    def __init__(self, transport_name):
+        assert(transport_name in PROCESS_SPECS)
+        self.transport_name = transport_name
+
+        super(EzptTransport, self).__init__()
 
         super(EzptTransport, self).__init__()
 

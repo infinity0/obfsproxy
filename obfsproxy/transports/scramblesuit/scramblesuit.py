@@ -602,7 +602,7 @@ class ScrambleSuitClient( ScrambleSuitTransport ):
     Extend the ScrambleSuit class.
     """
 
-    def __init__( self ):
+    def __init__( self, transport_name ):
         """
         Initialise a ScrambleSuitClient object.
         """
@@ -616,7 +616,7 @@ class ScrambleSuitServer( ScrambleSuitTransport ):
     Extend the ScrambleSuit class.
     """
 
-    def __init__( self ):
+    def __init__( self, transport_name ):
         """
         Initialise a ScrambleSuitServer object.
         """

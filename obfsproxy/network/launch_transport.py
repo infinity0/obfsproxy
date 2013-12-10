@@ -5,9 +5,9 @@ import obfsproxy.network.extended_orport as extended_orport
 
 from twisted.internet import reactor
 
-def launch_transport_listener(transport, bindaddr, role, remote_addrport, pt_config, ext_or_cookie_file=None):
+def launch_transport_listener(transport_name, bindaddr, role, remote_addrport, pt_config, ext_or_cookie_file=None):
     """
-    Launch a listener for 'transport' in role 'role' (socks/client/server/ext_server).
+    Launch a listener for 'transport_name' in role 'role' (socks/client/server/ext_server).
 
     If 'bindaddr' is set, then listen on bindaddr. Otherwise, listen
     on an ephemeral port on localhost.
@@ -30,18 +30,18 @@ def launch_transport_listener(transport, bindaddr, role, remote_addrport, pt_con
     could not be set up.
     """
 
-    transport_class = transports.get_transport_class(transport, role)
+    transport_class = transports.get_transport_class(transport_name, role)
     listen_host = bindaddr[0] if bindaddr else 'localhost'
     listen_port = int(bindaddr[1]) if bindaddr else 0
 
     if role == 'socks':
-        factory = socks.SOCKSv4Factory(transport_class, pt_config)
+        factory = socks.SOCKSv4Factory(transport_name, transport_class, pt_config)
     elif role == 'ext_server':
         assert(remote_addrport and ext_or_cookie_file)
-        factory = extended_orport.ExtORPortServerFactory(remote_addrport, ext_or_cookie_file, transport, transport_class, pt_config)
+        factory = extended_orport.ExtORPortServerFactory(remote_addrport, ext_or_cookie_file, transport_name, transport_class, pt_config)
     else:
         assert(remote_addrport)
-        factory = network.StaticDestinationServerFactory(remote_addrport, role, transport_class, pt_config)
+        factory = network.StaticDestinationServerFactory(remote_addrport, role, transport_name, transport_class, pt_config)
 
     addrport = reactor.listenTCP(listen_port, factory, interface=listen_host)
 
