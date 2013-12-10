@@ -14,21 +14,30 @@ import obfsproxy.common.log as logging
 log = logging.get_obfslogger()
 
 class EzptProcess(protocol.ProcessProtocol):
+
     def __init__(self, stream):
         self.stream = stream
-
-    def connectionMade(self):
-        log.debug("Process started!")
+        self.closing = False
 
     def outReceived(self, data):
-        log.debug("Received stdout from process: %s", str(data))
         self.stream.write(data)
 
     def inConnectonLost(self):
-        log.debug("inConnectionLost called!")
+        log.error("Child unexpectedly closed its stdin!")
+        # TODO(infinity0): close the circuit with an error
 
     def outConnectionLost(self):
-        log.debug("outConnectionLost called!")
+        if self.closing:
+            return # expected
+        log.error("Child unexpectedly closed its stdout!")
+        # TODO(infinity0): close the circuit with an error
+
+    def close(self):
+        self.transport.loseConnection()
+        self.closing = True
+        # TODO(infinity0): detect that the child is actually closed after a
+        # while (processEnded), and kill it if it hasn't. Twisted possibly
+        # already handles this, check that it does.
 
 
 class EzptTransport(BaseTransport):
@@ -67,7 +76,6 @@ class EzptTransport(BaseTransport):
         """
         self.forward = EzptProcess(self.circuit.downstream)
         self.reverse = EzptProcess(self.circuit.upstream)
-        # TODO(infinity0): tear down child procs when the circuit is closed
         reactor.spawnProcess(self.forward,
             self.forward_args[0], self.forward_args, os.environ)
         reactor.spawnProcess(self.reverse,
@@ -86,6 +94,12 @@ class EzptTransport(BaseTransport):
         Got data from upstream; relay them downstream.
         """
         self.forward.transport.write(data.read())
+
+    def circuitDestroyed(self, reason, side):
+        log.debug("Circuit destroyed on %s: %s" % (side, reason))
+        self.forward.close()
+        self.reverse.close()
+
 
 class EzptClient(EzptTransport):
 
