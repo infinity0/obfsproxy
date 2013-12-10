@@ -13,6 +13,75 @@ import os
 import obfsproxy.common.log as logging
 log = logging.get_obfslogger()
 
+
+class EzptProcessSpec(object):
+
+    def __init__(self, forward_args, reverse_args, stdbuf_workaround=False):
+        """Create a new ProcessSpec.
+
+        Args:
+            forward_args: list of string, command line to run the program
+                for the forward transformation (plain to obfuscated)
+            reverse_args: list of string, command line to run the program
+                for the reverse transformation (obfuscated to plain)
+            stdbuf_workaround:
+                This is necessary (but not sufficient) for programs that use
+                libc automatic full-buffering on non-terminal stdout. This
+                includes standard UNIX tools, but hopefully not your PT which
+                was specifically written with this consideration in mind (i.e.
+                flushes output buffers immediately whenever output is ready for
+                consumption). To test, run this:
+
+                $ { echo lol; cat; } | your_program | cat
+
+                If you see the transformation of "lol" appear immediately on the
+                terminal, then your_program does not need this workaround. If it
+                does not appear immediately, then the workaround is necessary,
+                but it may not be sufficient - specifically, programs that do
+                their own buffering outside of libc, such as GNU base64. To
+                check that the workaround does indeed work, run the above test
+                again with `stdbuf -o0 your_program`.
+
+                For simplicity, the workaround is either applied or not applied
+                to both forward and reverse programs, so you need to run the
+                test above (with and without the workaround) for both sides.
+
+                Finally, this workaround does not work on Windows, so there you
+                *must* use a properly written program!
+        """
+        self._forward_args = forward_args
+        self._reverse_args = reverse_args
+        self.stdbuf_workaround = stdbuf_workaround
+
+    @property
+    def forward_args(self):
+        if self.stdbuf_workaround:
+            return ["stdbuf", "-o0"] + self._forward_args
+        return self._forward_args
+
+    @property
+    def reverse_args(self):
+        if self.stdbuf_workaround:
+            return ["stdbuf", "-o0"] + self._reverse_args
+        return self._reverse_args
+
+
+TEST_SPECS = {
+    "id": EzptProcessSpec(
+        ["cat"],
+        ["cat"],
+        stdbuf_workaround = False),
+    "rot13": EzptProcessSpec(
+        ["tr", "[a-zA-Z]", "[n-za-mN-ZA-M]"],
+        ["tr", "[a-zA-Z]", "[n-za-mN-ZA-M]"],
+        stdbuf_workaround = True),
+    "xxd": EzptProcessSpec(
+        ["xxd", "-p"],
+        ["xxd", "-p", "-r"],
+        stdbuf_workaround = True),
+}
+
+
 class EzptProcess(protocol.ProcessProtocol):
 
     def __init__(self, stream):
@@ -46,29 +115,7 @@ class EzptTransport(BaseTransport):
     without obfuscating them.
     """
     def __init__(self):
-        # stdbuf is only necessary for programs that use full-buffering on
-        # non-terminal stdout. This includes most standard UNIX tools, but
-        # hopefully not your PT which was specifically written with this
-        # consideration in mind (i.e. it flushes output buffers immediately
-        # whenever output is suitable for consumption). To test, run this:
-        #
-        # $ { echo lol; cat; } | your_program | cat
-        #
-        # If you see the transformation of "lol" appear immediately on the
-        # terminal, then your_program does not need this workaround. If it does
-        # not appear immediately, then it does need it.
-        #
-        # Note that this workaround does not work on Windows, so there you must
-        # use a properly written program!
-        self.workaround_stdbuf = True
-        forward_args = ["rot13"]
-        reverse_args = ["rot13"]
-
-        if self.workaround_stdbuf:
-            forward_args = ["stdbuf", "-o0"] + forward_args
-            reverse_args = ["stdbuf", "-o0"] + reverse_args
-        self.forward_args = forward_args
-        self.reverse_args = reverse_args
+        self.spec = TEST_SPECS["xxd"]
 
     def circuitConnected(self):
         """
@@ -77,9 +124,9 @@ class EzptTransport(BaseTransport):
         self.forward = EzptProcess(self.circuit.downstream)
         self.reverse = EzptProcess(self.circuit.upstream)
         reactor.spawnProcess(self.forward,
-            self.forward_args[0], self.forward_args, os.environ)
+            self.spec.forward_args[0], self.spec.forward_args, os.environ)
         reactor.spawnProcess(self.reverse,
-            self.reverse_args[0], self.reverse_args, os.environ)
+            self.spec.reverse_args[0], self.spec.reverse_args, os.environ)
 
         log.debug("%s: spawned new EZPT processes", self.name)
 
