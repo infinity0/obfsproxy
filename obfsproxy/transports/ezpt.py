@@ -15,7 +15,35 @@ it into a fully-functional pluggable transport. Note that you actually need
 two programs - one for going forward, processing data to be sent, and
 one for going back, processing data that was received.
 
-TODO: provide some way for the user to configure which commands to execute
+This PT comes with a few pre-defined transports, but you can configure your
+own by listing them in the ezpt.spec file in the working directory.
+TODO: perhaps think of a better way of placing this file.
+
+For example:
+
+rot13 'tr "[a-zA-Z]" "[n-za-mN-ZA-M]"' '' stdbuf_workaround
+xor255 "perl -e '$|=1;while(read(STDIN,$_,1)){print chr(ord^0xff);}'" ''
+double "perl -e '$|=1;while(read(STDIN,$_,1)){print \"$_$_\";}'" "perl -e '$|=1;while(read(STDIN,$_,2)){print chop;}'"
+
+Each line of this file has the following syntax:
+
+$transport_name $forward_args $reverse_args $flag1 $flag2 $flag3 ...
+
+The entire line should be quoted in the POSIX shell manner - e.g. if
+forward_args contains spaces, you must wrap it within quotes. Then,
+
+- $transport_name must be alphanumeric and unquoted, and will be available as
+  a transport for obfsproxy to use, including in managed mode.
+- $forward_args, $reverse_args are themselves interpreted as a shell command,
+  so that if the elements of this command contain spaces, they must be further
+  quoted inside this string.
+- if $reverse_args is empty, it will take the same value as $forward_args and
+  you are saying decoding is the same operation as encoding. Note that you have
+  to explicity specify an empty string for this to work.
+- $flags are parsed as k=v pairs and passed to the EzptProcessSpec constructor.
+  If there is no '=', it is implicitly treated as $flag=True. See the docstring
+  for the constructor details on which flags are available. Specifically,
+  stdbuf_workaround is necessary for many standard UNIX tools.
 """
 
 from obfsproxy.transports.base import BaseTransport, PluggableTransportError
@@ -24,6 +52,8 @@ from twisted.internet import error
 from twisted.internet import reactor
 from twisted.internet import protocol
 
+from collections import OrderedDict as odict
+import shlex
 import os
 
 import obfsproxy.common.log as logging
@@ -81,21 +111,49 @@ class EzptProcessSpec(object):
             return ["stdbuf", "-o0"] + self._reverse_args
         return self._reverse_args
 
+    @classmethod
+    def parse(cls, string):
+        """See module documentation for parsing behaviour."""
+        args = shlex.split(string)
+        forward_args = shlex.split(args.pop(0))
+        reverse_args = shlex.split(args.pop(0))
+        if not reverse_args:
+            # empty means dec == enc
+            reverse_args = forward_args
+        # parse k=v args into a dict, with k (no =) meaning k=True
+        kwargs = dict(map(lambda a: a.split('=',1) if '=' in a else (a, True), args))
+        return cls(forward_args, reverse_args, **kwargs)
 
-PROCESS_SPECS = {
-    "id": EzptProcessSpec(
+    @classmethod
+    def parseFileIgnoreErrors(cls, fn):
+        """See module documentation for parsing behaviour."""
+        try:
+            with open(fn) as fp:
+                specs = []
+                for line in fp.readlines():
+                    if not line or line[0] == '#': continue
+                    k, rest = line.rstrip('\n').split(' ', 1)
+                    specs.append((k, cls.parse(rest)))
+                return specs
+        except Exception:
+            return []
+
+
+PROCESS_SPECS = odict([
+    ("id", EzptProcessSpec(
         ["cat"],
         ["cat"],
-        stdbuf_workaround = False),
-    "rot13": EzptProcessSpec(
+        stdbuf_workaround = False)),
+    ("rot13", EzptProcessSpec(
         ["tr", "[a-zA-Z]", "[n-za-mN-ZA-M]"],
         ["tr", "[a-zA-Z]", "[n-za-mN-ZA-M]"],
-        stdbuf_workaround = True),
-    "xxd": EzptProcessSpec(
+        stdbuf_workaround = True)),
+    ("xxd", EzptProcessSpec(
         ["xxd", "-p"],
         ["xxd", "-p", "-r"],
-        stdbuf_workaround = True),
-}
+        stdbuf_workaround = True)),
+] + EzptProcessSpec.parseFileIgnoreErrors(os.getenv("EZPT_SPEC", "ezpt.spec")))
+# TODO(infinity0): find a better place for this file
 
 
 class EzptProcess(protocol.ProcessProtocol):
@@ -252,6 +310,13 @@ class EzptServer(EzptTransport):
 
 
 def get_all_transports():
+    """
+    Returns all transports that EZPT has been configured to support. This is a
+    list-of-pairs of (transport_name:str, transport_classes:dict).
+
+    For examples of transport_classes and how these are used, see
+    obfsproxy.transports.transports.
+    """
     transports = {'base': EzptTransport, 'client' : EzptClient, 'server' : EzptServer }
     return [(k, transports) for k in PROCESS_SPECS.keys()]
 
