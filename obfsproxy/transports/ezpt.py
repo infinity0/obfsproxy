@@ -85,8 +85,11 @@ TEST_SPECS = {
 
 class EzptProcess(protocol.ProcessProtocol):
 
-    def __init__(self, stream):
+    def __init__(self, name, stream):
+        self.name = name
+        # remote stream to redirect stdout to
         self.stream = stream
+        # whether we are closing
         self.closing = False
         # lazily store errors until we actually need to detect them
         self.error = None
@@ -94,15 +97,18 @@ class EzptProcess(protocol.ProcessProtocol):
     def outReceived(self, data):
         self.stream.write(data)
 
+    def errReceived(self, data):
+        log.info("%s emitted stderr: %s", self.name, data.rstrip("\n"))
+
     def inConnectonLost(self):
-        msg = "Child unexpectedly closed its stdin!"
+        msg = "%s unexpectedly closed its stdin!" % self.name
         self.error = error.ConnectionFdescWentAway(msg)
         log.error(msg)
 
     def outConnectionLost(self):
         if self.closing:
             return # expected
-        msg = "Child unexpectedly closed its stdout!"
+        msg = "%s unexpectedly closed its stdout!" % self.name
         self.error = error.ConnectionFdescWentAway(msg)
         log.error(msg)
 
@@ -124,22 +130,25 @@ class EzptTransport(BaseTransport):
     def __init__(self):
         self.spec = TEST_SPECS["xxd"]
 
+        super(EzptTransport, self).__init__()
+
     def circuitConnected(self):
         """
         Circuit was completed, start the transform processes.
         """
-        self.forward = EzptProcess(self.circuit.downstream)
-        self.reverse = EzptProcess(self.circuit.upstream)
+        self.forward = EzptProcess("proc_fwd_%s" % self.name, self.circuit.downstream)
+        self.reverse = EzptProcess("proc_rev_%s" % self.name, self.circuit.upstream)
         reactor.spawnProcess(self.forward,
             self.spec.forward_args[0], self.spec.forward_args, os.environ)
         reactor.spawnProcess(self.reverse,
             self.spec.reverse_args[0], self.spec.reverse_args, os.environ)
 
-        log.debug("%s: spawned new EZPT processes", self.name)
+        log.debug("%s: spawned new EZPT processes: fwd %s rev %s",
+            self.name, self.spec.forward_args, self.spec.reverse_args)
 
     def receivedDownstream(self, data):
         """
-        Got data from downstream; relay them upstream.
+        Got data from downstream; relay it to the reverse process.
         """
         if self.reverse.error:
             raise PluggableTransportError(
@@ -148,7 +157,7 @@ class EzptTransport(BaseTransport):
 
     def receivedUpstream(self, data):
         """
-        Got data from upstream; relay them downstream.
+        Got data from upstream; relay it to the forward process.
         """
         if self.forward.error:
             raise PluggableTransportError(
@@ -159,7 +168,7 @@ class EzptTransport(BaseTransport):
         """
         Circuit was destroyed, close the transform processes.
         """
-        log.debug("Circuit destroyed on %s: %s" % (side, reason))
+        log.debug("Circuit %s destroyed on %s: %s" % (self.circuit.name, side, reason))
         self.forward.close()
         self.reverse.close()
 
