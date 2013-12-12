@@ -37,8 +37,29 @@ class EzptTransport(BaseTransport):
     without obfuscating them.
     """
     def __init__(self):
-        self.forward_args = ["rot13"]
-        self.reverse_args = ["rot13"]
+        # stdbuf is only necessary for programs that use full-buffering on
+        # non-terminal stdout. This includes most standard UNIX tools, but
+        # hopefully not your PT which was specifically written with this
+        # consideration in mind (i.e. it flushes output buffers immediately
+        # whenever output is suitable for consumption). To test, run this:
+        #
+        # $ { echo lol; cat; } | your_program | cat
+        #
+        # If you see the transformation of "lol" appear immediately on the
+        # terminal, then your_program does not need this workaround. If it does
+        # not appear immediately, then it does need it.
+        #
+        # Note that this workaround does not work on Windows, so there you must
+        # use a properly written program!
+        self.workaround_stdbuf = True
+        forward_args = ["rot13"]
+        reverse_args = ["rot13"]
+
+        if self.workaround_stdbuf:
+            forward_args = ["stdbuf", "-o0"] + forward_args
+            reverse_args = ["stdbuf", "-o0"] + reverse_args
+        self.forward_args = forward_args
+        self.reverse_args = reverse_args
 
     def circuitConnected(self):
         """
