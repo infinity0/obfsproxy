@@ -8,19 +8,17 @@ from obfsproxy.transports.base import BaseTransport
 from twisted.internet import reactor
 from twisted.internet import protocol
 
+import os
+
 import obfsproxy.common.log as logging
 log = logging.get_obfslogger()
 
 class EzptProcess(protocol.ProcessProtocol):
-    def __init__(self):
-        self.stream = None
+    def __init__(self, stream):
+        self.stream = stream
 
     def connectionMade(self):
         log.debug("Process started!")
-
-    def set_stream(self, stream):
-        log.debug("Setting stream to %s", str(stream))
-        self.stream = stream
 
     def outReceived(self, data):
         log.debug("Received stdout from process: %s", str(data))
@@ -32,35 +30,41 @@ class EzptProcess(protocol.ProcessProtocol):
     def outConnectionLost(self):
         log.debug("outConnectionLost called!")
 
+
 class EzptTransport(BaseTransport):
     """
     Implements the ezpt protocol. A protocol that simply proxies data
     without obfuscating them.
     """
     def __init__(self):
-        self.obf_proc = EzptProcess()
-        self.unobf_proc = EzptProcess()
-        reactor.spawnProcess(self.obf_proc, "/usr/games/rot13", ["rot13"], {})
-        reactor.spawnProcess(self.unobf_proc, "/usr/games/rot13", ["rot13"], {})
+        self.forward_args = ["rot13"]
+        self.reverse_args = ["rot13"]
+
+    def circuitConnected(self):
+        """
+        Circuit was completed, start the transform processes.
+        """
+        self.forward = EzptProcess(self.circuit.downstream)
+        self.reverse = EzptProcess(self.circuit.upstream)
+        # TODO(infinity0): tear down child procs when the circuit is closed
+        reactor.spawnProcess(self.forward,
+            self.forward_args[0], self.forward_args, os.environ)
+        reactor.spawnProcess(self.reverse,
+            self.reverse_args[0], self.reverse_args, os.environ)
+
+        log.debug("%s: spawned new EZPT processes", self.name)
 
     def receivedDownstream(self, data):
         """
         Got data from downstream; relay them upstream.
         """
-        if not self.unobf_proc.stream:
-            self.unobf_proc.set_stream(self.circuit.upstream)
-
-        self.unobf_proc.transport.write(data.read())
+        self.reverse.transport.write(data.read())
 
     def receivedUpstream(self, data):
         """
         Got data from upstream; relay them downstream.
         """
-        if not self.obf_proc.stream:
-            self.obf_proc.set_stream(self.circuit.downstream)
-
-        self.obf_proc.transport.write(data.read())
-#        self.obf_proc.transport.closeStdin()
+        self.forward.transport.write(data.read())
 
 class EzptClient(EzptTransport):
 
