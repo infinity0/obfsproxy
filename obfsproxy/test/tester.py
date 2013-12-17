@@ -305,6 +305,23 @@ class DirectScrambleSuit(DirectTest, unittest.TestCase):
         shutil.rmtree(self.tmpdir_srv)
         shutil.rmtree(self.tmpdir_cli)
 
+class DirectEzptXxd(DirectTest, unittest.TestCase):
+    transport = "ezpt_xxd"
+    server_args = ("ezpt_xxd", "server",
+                   "127.0.0.1:%d" % SERVER_PORT,
+                   "--dest=127.0.0.1:%d" % EXIT_PORT)
+    client_args = ("ezpt_xxd", "client",
+                   "127.0.0.1:%d" % ENTRY_PORT,
+                   "--dest=127.0.0.1:%d" % SERVER_PORT)
+
+class DirectEzptRot13(DirectTest, unittest.TestCase):
+    transport = "ezpt_rot13"
+    server_args = ("ezpt_rot13", "server",
+                   "127.0.0.1:%d" % SERVER_PORT,
+                   "--dest=127.0.0.1:%d" % EXIT_PORT)
+    client_args = ("ezpt_rot13", "client",
+                   "127.0.0.1:%d" % ENTRY_PORT,
+                   "--dest=127.0.0.1:%d" % SERVER_PORT)
 
 TEST_FILE = """\
 THIS IS A TEST FILE. IT'S USED BY THE INTEGRATION TESTS.
