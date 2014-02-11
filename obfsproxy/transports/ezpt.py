@@ -15,7 +15,45 @@ it into a fully-functional pluggable transport. Note that you actually need
 two programs - one for going forward, processing data to be sent, and
 one for going back, processing data that was received.
 
-TODO: provide some way for the user to configure which commands to execute
+This PT is disabled until you set the env vars EZPT_ENCODE and EZPT_DECODE.
+These are command-line strings, and will be parsed by the python shlex
+module into a command-line list, to be run for the encoding and decoding
+options respectively. (The shell is not invoked and no variables are
+expanded within the string; we only use its syntax for convenience.)
+
+A few examples follow. ALL OF THESE ARE INSECURE AND SHOULD NOT BE USED IN
+PRODUCTION. Read further below for what extra options mean:
+
+# output each byte twice:
+EZPT_ENCODE="perl -e '$|=1;while(read(STDIN,$_,1)){print \"$_$_\";}'" \
+EZPT_DECODE="perl -e '$|=1;while(read(STDIN,$_,2)){print chop;}'" \
+obfsproxy ezpt
+
+# xor255 every byte:
+EZPT_ENCODE="perl -e '$|=1;while(read(STDIN,$_,1)){print chr(ord^0xff);}'" \
+EZPT_DECODE="perl -e '$|=1;while(read(STDIN,$_,1)){print chr(ord^0xff);}'" \
+obfsproxy ezpt
+
+# hex-encode every byte:
+EZPT_STDBUF_WORKAROUND=1 \
+EZPT_ENCODE='xxd -p' \
+EZPT_DECODE='xxd -p -r' \
+obfsproxy ezpt
+
+# rot13 every byte:
+EZPT_STDBUF_WORKAROUND=1 \
+EZPT_ENCODE='tr "[a-zA-Z]" "[n-za-mN-ZA-M]"' \
+EZPT_DECODE='tr "[a-zA-Z]" "[n-za-mN-ZA-M]"' \
+obfsproxy ezpt
+
+Some other env vars you may set:
+
+EZPT_STDBUF_WORKAROUND=0|1
+This is needed for some core unix tools to function correctly with EZPT. If
+you are writing your own encoder/decoder, you are strongly discouraged from
+relying on this. See the doc for EzptProcessSpec for details on when this is
+appropriate.
+
 """
 
 from obfsproxy.transports.base import BaseTransport, PluggableTransportError
@@ -24,6 +62,7 @@ from twisted.internet import error
 from twisted.internet import reactor
 from twisted.internet import protocol
 
+import shlex
 import os
 
 import obfsproxy.common.log as logging
@@ -81,21 +120,21 @@ class EzptProcessSpec(object):
             return ["stdbuf", "-o0"] + self._reverse_args
         return self._reverse_args
 
+    def __repr__(self):
+        return "%s(%r, %r, %r)" % (self.__class__.__name__,
+            self._forward_args, self._reverse_args, self.stdbuf_workaround)
 
-TEST_SPECS = {
-    "id": EzptProcessSpec(
-        ["cat"],
-        ["cat"],
-        stdbuf_workaround = False),
-    "rot13": EzptProcessSpec(
-        ["tr", "[a-zA-Z]", "[n-za-mN-ZA-M]"],
-        ["tr", "[a-zA-Z]", "[n-za-mN-ZA-M]"],
-        stdbuf_workaround = True),
-    "xxd": EzptProcessSpec(
-        ["xxd", "-p"],
-        ["xxd", "-p", "-r"],
-        stdbuf_workaround = True),
-}
+    @classmethod
+    def parseFromEnv(cls):
+        forward_str = os.getenv("EZPT_ENCODE")
+        reverse_str = os.getenv("EZPT_DECODE")
+        if not forward_str or not reverse_str:
+            raise ValueError("ezpt: no command set")
+        stdbuf_workaround = bool(int(os.getenv("EZPT_STDBUF_WORKAROUND", "0")))
+        return cls(shlex.split(forward_str), shlex.split(reverse_str), stdbuf_workaround)
+
+
+EZPT_SPEC_FROM_ENV = None
 
 
 class EzptProcess(protocol.ProcessProtocol):
@@ -161,7 +200,8 @@ class EzptTransport(BaseTransport):
     without obfuscating them.
     """
     def __init__(self):
-        self.spec = TEST_SPECS["xxd"]
+        assert EZPT_SPEC_FROM_ENV is not None
+        self.spec = EZPT_SPEC_FROM_ENV
 
         super(EzptTransport, self).__init__()
 
@@ -245,4 +285,21 @@ class EzptServer(EzptTransport):
 
     pass
 
+
+
+def get_all_transports():
+    """
+    Returns all transports that EZPT has been configured to support. This is a
+    list-of-pairs of (transport_name:str, transport_classes:dict).
+
+    For examples of transport_classes and how these are used, see
+    obfsproxy.transports.transports.
+    """
+    global EZPT_SPEC_FROM_ENV
+    try:
+        EZPT_SPEC_FROM_ENV = EzptProcessSpec.parseFromEnv()
+        log.info("ezpt configured from environment: %r", EZPT_SPEC_FROM_ENV)
+        return [('ezpt', {'base': EzptTransport, 'client' : EzptClient, 'server' : EzptServer })]
+    except ValueError, e:
+        return []
 

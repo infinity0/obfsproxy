@@ -15,9 +15,12 @@ transports = [
     ('scramblesuit', {'base':  scramblesuit.ScrambleSuitTransport,
                        'client': scramblesuit.ScrambleSuitClient,
                        'server': scramblesuit.ScrambleSuitServer }),
-    ('obfs3', {'base': obfs3.Obfs3Transport, 'client' : obfs3.Obfs3Client, 'server' : obfs3.Obfs3Server }),
-    ('ezpt', {'base': ezpt.EzptTransport, 'client' : ezpt.EzptClient, 'server' : ezpt.EzptServer })
+    ('obfs3', {'base': obfs3.Obfs3Transport, 'client' : obfs3.Obfs3Client, 'server' : obfs3.Obfs3Server })
     ]
+
+# Now append ezpt to the transport list, if it was configured.
+ezpt_transports = ezpt.get_all_transports()
+transports.extend(ezpt_transports)
 
 # Make the list an ordered dictionary
 # (so that transports are neatly displayed in the --help dialog)
