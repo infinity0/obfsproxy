@@ -16,8 +16,8 @@ two programs - one for going forward, processing data to be sent, and
 one for going back, processing data that was received.
 
 This PT comes with a few pre-defined transports, but you can configure your
-own by listing them in the ezpt.spec file in the working directory.
-TODO: perhaps think of a better way of placing this file.
+own by listing them in the ezpt.spec file in the working directory, or else
+the file mentioned by the OBFSPROXY_EZPT_SPEC_FILE env var.
 
 For example:
 
@@ -139,6 +139,7 @@ class EzptProcessSpec(object):
             return []
 
 
+# Here are some pre-baked ezpt specs:
 PROCESS_SPECS = odict([
     ("id", EzptProcessSpec(
         ["cat"],
@@ -152,7 +153,7 @@ PROCESS_SPECS = odict([
         ["xxd", "-p"],
         ["xxd", "-p", "-r"],
         stdbuf_workaround = True)),
-] + EzptProcessSpec.parseFileIgnoreErrors(os.getenv("EZPT_SPEC", "ezpt.spec")))
+] + EzptProcessSpec.parseFileIgnoreErrors(os.getenv("OBFSPROXY_EZPT_SPEC_FILE", "./ezpt.spec")))
 # TODO(infinity0): find a better place for this file
 
 
@@ -220,7 +221,7 @@ class EzptTransport(BaseTransport):
     """
 
     def __init__(self, transport_name):
-        assert(transport_name in PROCESS_SPECS)
+        assert(transport_name.startswith('ezpt_') and transport_name[5:] in PROCESS_SPECS)
         self.transport_name = transport_name
 
         super(EzptTransport, self).__init__()
@@ -231,7 +232,7 @@ class EzptTransport(BaseTransport):
         """
         Circuit was completed, start the transform processes.
         """
-        spec = PROCESS_SPECS[self.transport_name]
+        spec = PROCESS_SPECS[self.transport_name[5:]]
         self.forward = EzptProcess("proc_fwd_%s" % self.name, self.circuit.downstream)
         self.reverse = EzptProcess("proc_rev_%s" % self.name, self.circuit.upstream)
         reactor.spawnProcess(self.forward,
@@ -318,5 +319,5 @@ def get_all_transports():
     obfsproxy.transports.transports.
     """
     transports = {'base': EzptTransport, 'client' : EzptClient, 'server' : EzptServer }
-    return [(k, transports) for k in PROCESS_SPECS.keys()]
+    return [('ezpt_' + k, transports) for k in PROCESS_SPECS.keys()]
 
