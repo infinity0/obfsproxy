@@ -21,7 +21,8 @@ setup(
     version=versioneer.get_version(),
     cmdclass=versioneer.get_cmdclass(),
 
-    packages = find_packages(),
+    packages = find_packages(exclude=['*.test']),
+    test_suite='obfsproxy.test',
     entry_points = {
         'console_scripts': [
             'obfsproxy = obfsproxy.pyobfsproxy:run'
