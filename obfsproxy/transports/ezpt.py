@@ -1,7 +1,22 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
-""" This module contains an implementation of the 'ezpt' transport. """
+""" This module contains an implementation of the 'ezpt' transport.
+
+EZPT is an easy way of testing out new pluggable transport ideas that only
+involve transforming a single input stream into a single output stream.
+
+Often, you can implement this quickly using a program that reads from its
+stdin, transforms this stream, and writes to its stdout. (This program could
+even be a shell script that pipes many programs together!)
+
+This PT serves as the wrapper around a simple stdin-stdout program to turn
+it into a fully-functional pluggable transport. Note that you actually need
+two programs - one for going forward, processing data to be sent, and
+one for going back, processing data that was received.
+
+TODO: provide some way for the user to configure which commands to execute
+"""
 
 from obfsproxy.transports.base import BaseTransport, PluggableTransportError
 
@@ -124,6 +139,10 @@ class EzptProcess(protocol.ProcessProtocol):
         self.status = status.value
 
     def checkExit(self, kill=False):
+        """
+        Returns whether the process has exited. If kill is True, then
+        try to kill (SIGKILL) the process if it is currently alive.
+        """
         if self.status is None:
             if kill:
                 log.info("kill %s since it has evaded death for too long!", self.name)
@@ -181,22 +200,30 @@ class EzptTransport(BaseTransport):
     def circuitDestroyed(self, reason, side):
         """
         Circuit was destroyed, close the transform processes.
+
+        We schedule periodic checks that the child processes are actually dead,
+        killing them after about a minute if they refuse to die.
         """
-        log.debug("Circuit %s destroyed on %s: %s" % (self.circuit.name, side, reason))
+        log.debug("Circuit %s destroyed on %s: %s", self.circuit.name, side, reason)
         self.forward.close()
         self.reverse.close()
         def cleanUp(timeout, multiplier, max_to, kill_to):
+            # timeout: time before next check
+            # multiplier: multiplier for next timeout
+            # max_to: max timeout
+            # kill_to: max timeout before a kill is issued
             maybeKill = timeout > kill_to
             if (self.forward.checkExit(maybeKill) and
                 self.reverse.checkExit(maybeKill)):
                 log.debug("%s: cleaned up EZPT processes", self.name)
-                del self.forward
-                del self.reverse
+                del self.forward, self.reverse
                 return
             next_to = timeout * multiplier
             reactor.callLater(next_to,
                 cleanUp, min(next_to, max_to), multiplier, max_to, kill_to)
-        reactor.callLater(0.25, cleanUp, 0.25, 1.5, 120, 30)
+        # ["%.2g" % (0.25*(1.8**x)) for x in xrange(12)]
+        # ['0.25', '0.45', '0.81', '1.5', '2.6', '4.7', '8.5', '15', '28', '50', '89', '1.6e+02']
+        reactor.callLater(0.25, cleanUp, 0.25, 1.8, 120, 30)
 
 
 class EzptClient(EzptTransport):
