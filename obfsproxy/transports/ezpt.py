@@ -82,7 +82,7 @@ class EzptProcessSpec(object):
         return self._reverse_args
 
 
-TEST_SPECS = {
+PROCESS_SPECS = {
     "id": EzptProcessSpec(
         ["cat"],
         ["cat"],
@@ -160,6 +160,7 @@ class EzptTransport(BaseTransport):
     Implements the ezpt protocol. A protocol that simply proxies data
     without obfuscating them.
     """
+
     def __init__(self, transport_name):
         assert(transport_name in PROCESS_SPECS)
         self.transport_name = transport_name
@@ -172,15 +173,16 @@ class EzptTransport(BaseTransport):
         """
         Circuit was completed, start the transform processes.
         """
+        spec = PROCESS_SPECS[self.transport_name]
         self.forward = EzptProcess("proc_fwd_%s" % self.name, self.circuit.downstream)
         self.reverse = EzptProcess("proc_rev_%s" % self.name, self.circuit.upstream)
         reactor.spawnProcess(self.forward,
-            self.spec.forward_args[0], self.spec.forward_args, os.environ)
+            spec.forward_args[0], spec.forward_args, os.environ)
         reactor.spawnProcess(self.reverse,
-            self.spec.reverse_args[0], self.spec.reverse_args, os.environ)
+            spec.reverse_args[0], spec.reverse_args, os.environ)
 
         log.debug("%s: spawned new EZPT processes: fwd %s rev %s",
-            self.name, self.spec.forward_args, self.spec.reverse_args)
+            self.name, spec.forward_args, spec.reverse_args)
 
     def receivedDownstream(self, data):
         """
@@ -248,4 +250,8 @@ class EzptServer(EzptTransport):
 
     pass
 
+
+def get_all_transports():
+    transports = {'base': EzptTransport, 'client' : EzptClient, 'server' : EzptServer }
+    return [(k, transports) for k in PROCESS_SPECS.keys()]
 
