@@ -185,11 +185,14 @@ EXIT_PORT   = 5001
 #
 
 class DirectTest(object):
+    server_kwargs = {}
+    client_kwargs = {}
+
     def setUp(self):
         self.output_reader = ReadWorker(("127.0.0.1", EXIT_PORT))
-        self.obfs_server = Obfsproxy(self.server_args)
+        self.obfs_server = Obfsproxy(self.server_args, **self.server_kwargs)
         time.sleep(0.1)
-        self.obfs_client = Obfsproxy(self.client_args)
+        self.obfs_client = Obfsproxy(self.client_args, **self.client_kwargs)
         self.input_chan = connect_with_retry(("127.0.0.1", ENTRY_PORT))
         self.input_chan.settimeout(SOCKET_TIMEOUT)
 
@@ -304,6 +307,40 @@ class DirectScrambleSuit(DirectTest, unittest.TestCase):
         # Now, we can clean up after ourselves.
         shutil.rmtree(self.tmpdir_srv)
         shutil.rmtree(self.tmpdir_cli)
+
+EZPT_ENV_XXD = dict(os.environ.items() + {
+   "EZPT_STDBUF_WORKAROUND": "1",
+   "EZPT_ENCODE": 'xxd -p',
+   "EZPT_DECODE": 'xxd -p -r',
+}.items())
+
+class DirectEzptXxd(DirectTest, unittest.TestCase):
+    transport = "ezpt"
+    server_args = ("ezpt", "server",
+                   "127.0.0.1:%d" % SERVER_PORT,
+                   "--dest=127.0.0.1:%d" % EXIT_PORT)
+    server_kwargs = {"env" : EZPT_ENV_XXD}
+    client_args = ("ezpt", "client",
+                   "127.0.0.1:%d" % ENTRY_PORT,
+                   "--dest=127.0.0.1:%d" % SERVER_PORT)
+    client_kwargs = {"env" : EZPT_ENV_XXD}
+
+EZPT_ENV_ROT13 = dict(os.environ.items() + {
+   "EZPT_STDBUF_WORKAROUND": "1",
+   "EZPT_ENCODE": 'tr "[a-zA-Z]" "[n-za-mN-ZA-M]"',
+   "EZPT_DECODE": 'tr "[a-zA-Z]" "[n-za-mN-ZA-M]"',
+}.items())
+
+class DirectEzptRot13(DirectTest, unittest.TestCase):
+    transport = "ezpt"
+    server_args = ("ezpt", "server",
+                   "127.0.0.1:%d" % SERVER_PORT,
+                   "--dest=127.0.0.1:%d" % EXIT_PORT)
+    server_kwargs = {"env" : EZPT_ENV_ROT13}
+    client_args = ("ezpt", "client",
+                   "127.0.0.1:%d" % ENTRY_PORT,
+                   "--dest=127.0.0.1:%d" % SERVER_PORT)
+    client_kwargs = {"env" : EZPT_ENV_ROT13}
 
 
 TEST_FILE = """\
