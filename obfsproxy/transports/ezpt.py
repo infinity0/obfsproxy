@@ -21,6 +21,9 @@ module into a command-line list, to be run for the encoding and decoding
 options respectively. (The shell is not invoked and no variables are
 expanded within the string; we only use its syntax for convenience.)
 
+If you need to do this in torrc, and you are not using Windows, you may use
+env(1) to set these variables.
+
 A few examples follow. ALL OF THESE ARE INSECURE AND SHOULD NOT BE USED IN
 PRODUCTION. Read further below for what extra options mean:
 
